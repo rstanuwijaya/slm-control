@@ -3,7 +3,7 @@
     "aperture_x": 256,
     "aperture_y": 256,
     "aperture_radius": 155,
-    "grating_period": 7.0,
+    "grating_period": 6.0,
     "grating_depth": 135.0,
-    "checkerboard_size": 32
+    "checkerboard_size": 26
 }

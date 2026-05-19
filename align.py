@@ -25,7 +25,7 @@ class PreviewWindow(QWidget):
 
 
 class SLMDriver(QWidget):
-    def __init__(self, screen_index=1, width=512, height=512, config_file="align.txt"):
+    def __init__(self, screen_index=1, width=512, height=512, config_file="align.json"):
         super().__init__()
         self.width = width
         self.height = height
@@ -251,8 +251,9 @@ if __name__ == '__main__':
     TARGET_SCREEN = 1 
     SLM_WIDTH = 512
     SLM_HEIGHT = 512
+    CONFIG_FILE = "align.json"
     
-    slm_window = SLMDriver(screen_index=TARGET_SCREEN, width=SLM_WIDTH, height=SLM_HEIGHT)
+    slm_window = SLMDriver(screen_index=TARGET_SCREEN, width=SLM_WIDTH, height=SLM_HEIGHT, config_file=CONFIG_FILE)
     slm_window.show()
     
     sys.exit(app.exec_())

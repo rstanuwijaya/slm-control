@@ -125,12 +125,13 @@ class PreviewWindow(QWidget):
 
 
 class SLMDriver(QWidget):
-    def __init__(self, screen_index=1, width=512, height=512, config_file="config.txt"):
+    def __init__(self, screen_index=1, width=512, height=512, config_file="config.txt", image_file="image.csv"):
         super().__init__()
         self.width = width
         self.height = height
         self.screen_index = screen_index
         self.config_file = config_file
+        self.image_file = image_file
         
         # Default parameters
         self.angle = 0.0              
@@ -164,16 +165,16 @@ class SLMDriver(QWidget):
         self.preview_window.show()
         
         self.file_watcher = QFileSystemWatcher()
-        self.file_watcher.addPath(os.path.abspath("image.csv"))
+        self.file_watcher.addPath(os.path.abspath(self.image_file))
         self.file_watcher.fileChanged.connect(self.on_image_csv_changed)
         
         self.update_pattern()
 
     def load_csv(self):
         """Loads the 8x8 grid of multipliers from image.csv."""
-        if os.path.exists("image.csv"):
+        if os.path.exists(self.image_file):
             try:
-                data = np.loadtxt("image.csv", delimiter=",")
+                data = np.loadtxt(self.image_file, delimiter=",")
                 if data.size == 64:
                     self.multipliers = data.flatten().astype(np.float32)
                     print("Successfully loaded multipliers from image.csv")
@@ -420,8 +421,10 @@ if __name__ == '__main__':
     TARGET_SCREEN = 1 
     SLM_WIDTH = 512
     SLM_HEIGHT = 512
+    CONFIG_FILE = "config.json"
+    IMAGE_FILE = "image.csv"
     
-    slm_window = SLMDriver(screen_index=TARGET_SCREEN, width=SLM_WIDTH, height=SLM_HEIGHT)
+    slm_window = SLMDriver(screen_index=TARGET_SCREEN, width=SLM_WIDTH, height=SLM_HEIGHT, config_file=CONFIG_FILE, image_file=IMAGE_FILE)
     slm_window.show()
     
     sys.exit(app.exec_())
