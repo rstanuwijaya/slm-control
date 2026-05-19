@@ -1,0 +1,9 @@
+{
+    "angle": 0.0,
+    "aperture_x": 256,
+    "aperture_y": 256,
+    "aperture_radius": 155,
+    "grating_period": 7.0,
+    "grating_depth": 135.0,
+    "checkerboard_size": 32
+}
