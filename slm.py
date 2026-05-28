@@ -14,9 +14,9 @@ from PyQt5.QtGui import QImage, QPixmap
 # ---------------------------------------------------------
 @jax.jit(static_argnames=['width', 'height'])
 def compute_pattern(width, height, angle, aperture_x, aperture_y, aperture_radius,
-                    grating_period, grating_depth, array_pitch, checkerboard_mode, 
-                    checkerboard_size, zoom_level, inner_square_size, outer_square_size,
-                    multipliers, outer_multiplier):
+                    grating_period, grating_phase_min, grating_phase_max, array_pitch, 
+                    checkerboard_mode, checkerboard_size, zoom_level, inner_square_size, 
+                    outer_square_size, multipliers, outer_multiplier):
     """
     Pure function to compute the SLM pattern using JAX.
     JIT compilation makes this extremely fast after the first execution.
@@ -33,8 +33,8 @@ def compute_pattern(width, height, angle, aperture_x, aperture_y, aperture_radiu
     X, Y = jnp.meshgrid(x, y)
     
     theta = jnp.radians(angle)
-    cos_theta = jnp.round(jnp.cos(theta), 10)
-    sin_theta = jnp.round(jnp.sin(theta), 10)
+    cos_theta = jnp.round(jnp.cos(theta), 5)
+    sin_theta = jnp.round(jnp.sin(theta), 5)
     
     phase = (X * cos_theta + Y * sin_theta) / grating_period
     fractional_phase = jnp.mod(phase, 1.0)
@@ -48,12 +48,14 @@ def compute_pattern(width, height, angle, aperture_x, aperture_y, aperture_radiu
     cx = aperture_x + ox.flatten()
     cy = aperture_y + oy.flatten()
     
-    # Broadcast to calculate distances from all pixels to all 64 centers simultaneously
-    dist_sq = (X_abs[..., None] - cx)**2 + (Y_abs[..., None] - cy)**2
+    # # Broadcast to calculate distances from all pixels to all 64 centers simultaneously
+    # dist_sq = (X_abs[..., None] - cx)**2 + (Y_abs[..., None] - cy)**2
     
-    # Create masks for each of the 64 disks
-    disk_masks = dist_sq <= effective_radius**2
+    # # Create masks for each of the 64 disks
+    # disk_masks = dist_sq <= effective_radius**2
     
+    # square disk_mask
+    disk_masks = (jnp.abs(X_abs[..., None] - cx) <= effective_radius) & (jnp.abs(Y_abs[..., None] - cy) <= effective_radius)
     # Map the premultipliers to their respective disks
     # disk_masks is (H, W, 64), multipliers is (64,)
     disk_multiplier_map = jnp.sum(disk_masks * multipliers, axis=-1)
@@ -77,16 +79,18 @@ def compute_pattern(width, height, angle, aperture_x, aperture_y, aperture_radiu
     aperture_mask = disk_mask_any | frame_mask
 
     # Modulate grating depth with the multiplier map and apply pi phase shift for negative values
+    depth = grating_phase_max - grating_phase_min
     abs_multiplier = jnp.abs(total_multiplier_map)
-    base_grating = abs_multiplier * fractional_phase * grating_depth
+    base_grating = abs_multiplier * fractional_phase * depth
     
     grating_float = jnp.where(
         total_multiplier_map >= 0,
         base_grating,
-        base_grating + (grating_depth / 2.0)  # pi phase shift
+        base_grating + (depth / 2.0)  # pi phase shift
     )
 
-    grating_wrapped = jnp.mod(grating_float, grating_depth)
+    # Wrap the phase strictly between min and max
+    grating_wrapped = grating_phase_min + jnp.mod(grating_float, depth)
     grating = jnp.floor(grating_wrapped).astype(jnp.uint8)
 
     # 3. Checkerboard logic
@@ -139,7 +143,8 @@ class SLMDriver(QWidget):
         self.aperture_y = height // 2 
         self.aperture_radius = 15     
         self.grating_period = 30.0    
-        self.grating_depth = 255.0    
+        self.grating_phase_min = 0.0
+        self.grating_phase_max = 255.0
         self.array_pitch = 35.0       
         
         # Zoom and square frames
@@ -149,7 +154,10 @@ class SLMDriver(QWidget):
         
         # Checkerboard state
         self.checkerboard_mode = False
-        self.checkerboard_size = 32   
+        self.checkerboard_size = 32
+        
+        # Uniform grating mode (full screen, no aperture)
+        self.uniform_mode = False   
         
         # New parameters for multipliers
         self.A = 1.0
@@ -175,6 +183,7 @@ class SLMDriver(QWidget):
         if os.path.exists(self.image_file):
             try:
                 data = np.loadtxt(self.image_file, delimiter=",")
+                data = np.rot90(data, k=1)
                 if data.size == 64:
                     self.multipliers = data.flatten().astype(np.float32)
                     print("Successfully loaded multipliers from image.csv")
@@ -208,7 +217,8 @@ class SLMDriver(QWidget):
             
         print("\n--- SLM Controls ---")
         print("[,]       : Decrease/Increase Grating Period")
-        print("-, =      : Decrease/Increase Grating Depth")
+        print("9, 0      : Decrease/Increase Grating Phase Min")
+        print("-, =      : Decrease/Increase Grating Phase Max")
         print("<, >      : Rotate Grating Angle")
         print("Arrows    : Move Aperture X/Y")
         print("PgUp/PgDn : Zoom In / Zoom Out (Scales overall geometry)")
@@ -216,6 +226,8 @@ class SLMDriver(QWidget):
         print("E, D      : Increase/Decrease Inner Square Size")
         print("R, F      : Increase/Decrease Outer Square Size")
         print("C         : Toggle Checkerboard Mode")
+        print("O, L      : Increase/Decrease Checkerboard Size")
+        print("U         : Toggle Uniform Grating (full screen)")
         print("1, 2, 3   : Set outer area multiplier to 0, +A, -A respectively")
         print("Q, A      : Increase/Decrease A (bounded between 0 and 1)")
         print("Esc       : Close Window\n")
@@ -230,7 +242,8 @@ class SLMDriver(QWidget):
                     self.aperture_y = config.get("aperture_y", self.aperture_y)
                     self.aperture_radius = config.get("aperture_radius", self.aperture_radius)
                     self.grating_period = config.get("grating_period", self.grating_period)
-                    self.grating_depth = config.get("grating_depth", self.grating_depth)
+                    self.grating_phase_min = config.get("grating_phase_min", self.grating_phase_min)
+                    self.grating_phase_max = config.get("grating_phase_max", self.grating_phase_max)
                     self.array_pitch = config.get("array_pitch", self.array_pitch)
                     self.checkerboard_size = config.get("checkerboard_size", self.checkerboard_size)
                     
@@ -255,7 +268,8 @@ class SLMDriver(QWidget):
             "aperture_y": self.aperture_y,
             "aperture_radius": self.aperture_radius,
             "grating_period": self.grating_period,
-            "grating_depth": self.grating_depth,
+            "grating_phase_min": self.grating_phase_min,
+            "grating_phase_max": self.grating_phase_max,
             "array_pitch": self.array_pitch,
             "checkerboard_size": self.checkerboard_size,
             "zoom_level": self.zoom_level,
@@ -274,6 +288,34 @@ class SLMDriver(QWidget):
         """Calls the JIT-compiled JAX function and updates the display."""
         safe_period = max(2.0, self.grating_period)
         
+        if self.uniform_mode:
+            x = jnp.arange(self.width) - self.width // 2
+            y = jnp.arange(self.height) - self.height // 2
+            X, Y = jnp.meshgrid(x, y)
+            
+            theta = jnp.radians(self.angle)
+            cos_theta = jnp.round(np.cos(theta), 5)
+            sin_theta = jnp.round(np.sin(theta), 5)
+            
+            phase = (X * cos_theta + Y * sin_theta) / safe_period
+            fractional_phase = jnp.mod(phase, 1.0)
+            
+            depth = self.grating_phase_max - self.grating_phase_min
+            grating_float = fractional_phase * depth
+            grating_wrapped = self.grating_phase_min + jnp.mod(grating_float, depth)
+            pattern = jnp.floor(grating_wrapped).astype(np.uint8)
+            
+            if self.checkerboard_mode:
+                X_abs, Y_abs = jnp.meshgrid(np.arange(self.width), jnp.arange(self.height))
+                check_size = max(1, self.checkerboard_size)
+                check_x = (X_abs // check_size) % 2
+                check_y = (Y_abs // check_size) % 2
+                checkerboard_mask = check_x ^ check_y
+                pattern = jnp.where(checkerboard_mask, pattern, 0).astype(np.uint8)
+            
+            self.display_pattern(pattern)
+            return
+        
         # Determine the outer multiplier based on the current state
         if self.outer_state == 1:
             current_outer_multiplier = 0.0
@@ -291,7 +333,8 @@ class SLMDriver(QWidget):
             aperture_y=self.aperture_y,
             aperture_radius=self.aperture_radius,
             grating_period=safe_period,
-            grating_depth=self.grating_depth,
+            grating_phase_min=self.grating_phase_min,
+            grating_phase_max=self.grating_phase_max,
             array_pitch=self.array_pitch,
             checkerboard_mode=self.checkerboard_mode,
             checkerboard_size=self.checkerboard_size,
@@ -326,11 +369,11 @@ class SLMDriver(QWidget):
 
     def keyPressEvent(self, event):
         """Handles key presses for tuning the SLM pattern."""
-        step_pos = 10       
+        step_pos = 2       
         step_angle = 5.0    
         step_period = 1.0   
-        step_depth = 5.0    
-        step_zoom = 0.05
+        step_phase = 5.0    
+        step_zoom = 0.01
         step_radius = 1.0
         step_square = 5.0
         step_A = 0.05
@@ -342,6 +385,8 @@ class SLMDriver(QWidget):
             return
         elif key == Qt.Key_C:
             self.checkerboard_mode = not self.checkerboard_mode
+        elif key == Qt.Key_U:
+            self.uniform_mode = not self.uniform_mode
             
         # Multiplier Controls
         elif key == Qt.Key_1:
@@ -392,15 +437,25 @@ class SLMDriver(QWidget):
         elif key == Qt.Key_F:
             self.outer_square_size = max(0.0, self.outer_square_size - step_square)
 
+        # Checkerboard Size Controls
+        elif key == Qt.Key_O:
+            self.checkerboard_size += 1
+        elif key == Qt.Key_L:
+            self.checkerboard_size = max(1, self.checkerboard_size - 1)
+
         # Grating Controls
         elif key == Qt.Key_BracketLeft:
             self.grating_period = max(2.0, self.grating_period - step_period)
         elif key == Qt.Key_BracketRight:
             self.grating_period += step_period
+        elif key == Qt.Key_9:
+            self.grating_phase_min = max(0.0, self.grating_phase_min - step_phase)
+        elif key == Qt.Key_0:
+            self.grating_phase_min = min(self.grating_phase_max - 1.0, self.grating_phase_min + step_phase)
         elif key == Qt.Key_Minus:
-            self.grating_depth = max(0.0, self.grating_depth - step_depth)
+            self.grating_phase_max = max(self.grating_phase_min + 1.0, self.grating_phase_max - step_phase)
         elif key == Qt.Key_Equal: 
-            self.grating_depth += step_depth
+            self.grating_phase_max = min(255.0, self.grating_phase_max + step_phase)
         else:
             return 
 
@@ -421,8 +476,8 @@ if __name__ == '__main__':
     TARGET_SCREEN = 1 
     SLM_WIDTH = 512
     SLM_HEIGHT = 512
-    CONFIG_FILE = "config.json"
-    IMAGE_FILE = "image.csv"
+    CONFIG_FILE = "slm.json"
+    IMAGE_FILE = "patterns/corner.csv"
     
     slm_window = SLMDriver(screen_index=TARGET_SCREEN, width=SLM_WIDTH, height=SLM_HEIGHT, config_file=CONFIG_FILE, image_file=IMAGE_FILE)
     slm_window.show()
