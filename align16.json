@@ -1,10 +1,10 @@
 {
-    "angle": 55.0,
+    "angle": 0.0,
     "aperture_x": 256,
     "aperture_y": 256,
     "aperture_radius": 400,
-    "grating_period": 10.0,
-    "grating_depth": 65536,
+    "grating_period": 8.0,
+    "grating_depth": 63488.0,
     "checkerboard_size": 102,
     "checkerboard_mode": true
 }

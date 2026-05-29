@@ -1,3 +1,6 @@
+# See section 6.2 from https://preview-assets-us-01.kc-usercontent.com/e2c88b55-9706-00f8-e777-65a7b1f009dc/f3b3ef1b-f26d-42e8-a446-10b577215aa1/1920%20HDMI%20User%20Manual.pdf
+# or https://cloud.rstanuwijaya.net/s/manuals
+
 import sys
 import numpy as np
 import pyvisa
@@ -82,7 +85,7 @@ class SLMDriver(QWidget):
             sys.exit()
 
 if __name__ == '__main__':
-    PERIOD = 16  # Adjust as needed
+    PERIOD = 64  # Adjust as needed
     MODE = 'checkerboard'  # 'row', 'column', or 'checkerboard'    
     STEP_SIZE = 256 * 4 # Step size for the 16-bit sweep. 
     DELAY = 0.2  # Delay between measurements in seconds
@@ -94,7 +97,9 @@ if __name__ == '__main__':
 
     try:
         rm = pyvisa.ResourceManager('@py')
-        pm = rm.open_resource('USB0::4883::32944::P3001202::0::INSTR')
+        pm = rm.open_resource('USB0::4883::32944::P3001202::0::INSTR') 
+        # please run rm.list_resources() to find the correct address. 
+        # you will need to install pyvisa and pyvisa-py
     except:
         print("Visa Error: Power meter not found.")
         # sys.exit()
@@ -133,6 +138,8 @@ if __name__ == '__main__':
     print(f"Results saved to {filename}")
 
     g, p = np.loadtxt(filename, delimiter=',').T
+    g = g // 256
     plt.plot(g, p)
+    plt.ylim(bottom=0)
     plt.show()
     sys.exit(0)

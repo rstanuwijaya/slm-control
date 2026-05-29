@@ -251,7 +251,7 @@ if __name__ == '__main__':
     TARGET_SCREEN = 1 
     SLM_WIDTH = 512  
     SLM_HEIGHT = 512  
-    CONFIG_FILE = "align.json"
+    CONFIG_FILE = "align8.json"
     
     slm_window = SLMDriver(screen_index=TARGET_SCREEN, width=SLM_WIDTH, height=SLM_HEIGHT, config_file=CONFIG_FILE)
     slm_window.show()

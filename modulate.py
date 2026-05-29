@@ -1,3 +1,8 @@
+# Short script to convert image.csv to (m)odulated-image.csv
+# The amplitude of the 1st order grating is a sinc function of modulation depth.
+# Also need to include a phase shift to accomodate the modulation depth phase shift.
+
+
 import jax
 import jax.numpy as jnp
 import numpy as np

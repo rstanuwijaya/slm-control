@@ -48,16 +48,9 @@ def compute_pattern(width, height, angle, aperture_x, aperture_y, aperture_radiu
     cx = aperture_x + ox.flatten()
     cy = aperture_y + oy.flatten()
     
-    # # Broadcast to calculate distances from all pixels to all 64 centers simultaneously
-    # dist_sq = (X_abs[..., None] - cx)**2 + (Y_abs[..., None] - cy)**2
-    
-    # # Create masks for each of the 64 disks
-    # disk_masks = dist_sq <= effective_radius**2
-    
     # square disk_mask
     disk_masks = (jnp.abs(X_abs[..., None] - cx) <= effective_radius) & (jnp.abs(Y_abs[..., None] - cy) <= effective_radius)
     # Map the premultipliers to their respective disks
-    # disk_masks is (H, W, 64), multipliers is (64,)
     disk_multiplier_map = jnp.sum(disk_masks * multipliers, axis=-1)
     
     # Generate outer and inner square rectangle masks
@@ -71,7 +64,7 @@ def compute_pattern(width, height, angle, aperture_x, aperture_y, aperture_radiu
     frame_mask = rect_mask_outer & ~rect_mask_inner
     frame_multiplier_map = frame_mask * outer_multiplier
     
-    # Combine multipliers (assuming disks and frame don't overlap)
+    # Combine multipliers
     total_multiplier_map = disk_multiplier_map + frame_multiplier_map
     
     # Combine masks to know where to draw the pattern at all
@@ -97,7 +90,7 @@ def compute_pattern(width, height, angle, aperture_x, aperture_y, aperture_radiu
     check_size = jnp.maximum(1, checkerboard_size)
     check_x = (X_abs // check_size) % 2
     check_y = (Y_abs // check_size) % 2
-    checkerboard_mask = check_x ^ check_y  # Logical XOR for checkerboard
+    checkerboard_mask = check_x ^ check_y
     
     # Apply checkerboard if enabled
     base_pattern = jnp.where(
@@ -106,14 +99,13 @@ def compute_pattern(width, height, angle, aperture_x, aperture_y, aperture_radiu
         grating
     ).astype(jnp.uint8)
 
-    # 4. Apply the aperture mask (0 outside aperture, pattern inside)
+    # 4. Apply the aperture mask
     pattern = jnp.where(aperture_mask, base_pattern, 0).astype(jnp.uint8)
     
     return pattern
 
 
 class PreviewWindow(QWidget):
-    """A standard window to preview the SLM pattern on the main monitor."""
     def __init__(self, slm_driver, width=512, height=512):
         super().__init__()
         self.slm_driver = slm_driver
@@ -124,7 +116,6 @@ class PreviewWindow(QWidget):
         self.label.resize(width, height)
 
     def keyPressEvent(self, event):
-        # Forward any key presses to the main SLM driver
         self.slm_driver.keyPressEvent(event)
 
 
@@ -137,7 +128,6 @@ class SLMDriver(QWidget):
         self.config_file = config_file
         self.image_file = image_file
         
-        # Default parameters
         self.angle = 0.0              
         self.aperture_x = width // 2  
         self.aperture_y = height // 2 
@@ -146,29 +136,20 @@ class SLMDriver(QWidget):
         self.grating_phase_min = 0.0
         self.grating_phase_max = 255.0
         self.array_pitch = 35.0       
-        
-        # Zoom and square frames
         self.zoom_level = 1.0
         self.inner_square_size = 140.0
         self.outer_square_size = 155.0
-        
-        # Checkerboard state
         self.checkerboard_mode = False
         self.checkerboard_size = 32
-        
-        # Uniform grating mode (full screen, no aperture)
         self.uniform_mode = False   
-        
-        # New parameters for multipliers
         self.A = 1.0
-        self.outer_state = 1 # 1 -> 0, 2 -> +A, 3 -> -A
+        self.outer_state = 1 
         self.multipliers = np.ones(64, dtype=np.float32)
         
         self.load_csv()
         self.load_config()
         self.initUI()
         
-        # Initialize and show the preview window
         self.preview_window = PreviewWindow(self, width=self.width, height=self.height)
         self.preview_window.show()
         
@@ -179,20 +160,16 @@ class SLMDriver(QWidget):
         self.update_pattern()
 
     def load_csv(self):
-        """Loads the 8x8 grid of multipliers from image.csv."""
         if os.path.exists(self.image_file):
             try:
                 data = np.loadtxt(self.image_file, delimiter=",")
                 data = np.rot90(data, k=1)
                 if data.size == 64:
                     self.multipliers = data.flatten().astype(np.float32)
-                    print("Successfully loaded multipliers from image.csv")
                 else:
-                    print(f"Warning: image.csv contains {data.size} elements, expected 64. Using default array of 1s.")
+                    print(f"Warning: image.csv contains {data.size} elements, expected 64.")
             except Exception as e:
                 print(f"Failed to load image.csv: {e}")
-        else:
-            print("image.csv not found. Using default array of 1s for the 8x8 grid.")
 
     def on_image_csv_changed(self, path):
         self.load_csv()
@@ -202,7 +179,6 @@ class SLMDriver(QWidget):
     def initUI(self):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setFixedSize(self.width, self.height)
-
         self.label = QLabel(self)
         self.label.resize(self.width, self.height)
 
@@ -211,25 +187,23 @@ class SLMDriver(QWidget):
             target_screen = screens[self.screen_index]
             rect = target_screen.geometry()
             self.move(rect.left(), rect.top())
-            print(f"SLM Window moved to Screen {self.screen_index}: {rect.width()}x{rect.height()} at ({rect.left()}, {rect.top()})")
-        else:
-            print(f"Warning: Screen index {self.screen_index} not found. Using default screen.")
             
         print("\n--- SLM Controls ---")
+        print("[Enter/Return]: SAVE pattern to ./image.png")
         print("[,]       : Decrease/Increase Grating Period")
         print("9, 0      : Decrease/Increase Grating Phase Min")
         print("-, =      : Decrease/Increase Grating Phase Max")
         print("<, >      : Rotate Grating Angle")
         print("Arrows    : Move Aperture X/Y")
-        print("PgUp/PgDn : Zoom In / Zoom Out (Scales overall geometry)")
-        print("W, S      : Increase/Decrease Lens Size (Aperture Radius)")
+        print("PgUp/PgDn : Zoom In / Zoom Out")
+        print("W, S      : Increase/Decrease Lens Size")
         print("E, D      : Increase/Decrease Inner Square Size")
         print("R, F      : Increase/Decrease Outer Square Size")
         print("C         : Toggle Checkerboard Mode")
         print("O, L      : Increase/Decrease Checkerboard Size")
-        print("U         : Toggle Uniform Grating (full screen)")
-        print("1, 2, 3   : Set outer area multiplier to 0, +A, -A respectively")
-        print("Q, A      : Increase/Decrease A (bounded between 0 and 1)")
+        print("U         : Toggle Uniform Grating")
+        print("1, 2, 3   : Set outer area multiplier to 0, +A, -A")
+        print("Q, A      : Increase/Decrease A")
         print("Esc       : Close Window\n")
 
     def load_config(self):
@@ -246,37 +220,22 @@ class SLMDriver(QWidget):
                     self.grating_phase_max = config.get("grating_phase_max", self.grating_phase_max)
                     self.array_pitch = config.get("array_pitch", self.array_pitch)
                     self.checkerboard_size = config.get("checkerboard_size", self.checkerboard_size)
-                    
                     self.zoom_level = config.get("zoom_level", self.zoom_level)
                     self.inner_square_size = config.get("inner_square_size", self.inner_square_size)
                     self.outer_square_size = config.get("outer_square_size", self.outer_square_size)
-                    
                     self.A = config.get("A", self.A)
                     self.outer_state = config.get("outer_state", self.outer_state)
-                    
-                    if self.grating_period <= 0:
-                        self.grating_period = 2.0
-                        
-                print("Configuration loaded successfully.")
             except Exception as e:
                 print(f"Failed to load config: {e}")
 
     def save_config(self):
         config = {
-            "angle": self.angle,
-            "aperture_x": self.aperture_x,
-            "aperture_y": self.aperture_y,
-            "aperture_radius": self.aperture_radius,
-            "grating_period": self.grating_period,
-            "grating_phase_min": self.grating_phase_min,
-            "grating_phase_max": self.grating_phase_max,
-            "array_pitch": self.array_pitch,
-            "checkerboard_size": self.checkerboard_size,
-            "zoom_level": self.zoom_level,
-            "inner_square_size": self.inner_square_size,
-            "outer_square_size": self.outer_square_size,
-            "A": self.A,
-            "outer_state": self.outer_state
+            "angle": self.angle, "aperture_x": self.aperture_x, "aperture_y": self.aperture_y,
+            "aperture_radius": self.aperture_radius, "grating_period": self.grating_period,
+            "grating_phase_min": self.grating_phase_min, "grating_phase_max": self.grating_phase_max,
+            "array_pitch": self.array_pitch, "checkerboard_size": self.checkerboard_size,
+            "zoom_level": self.zoom_level, "inner_square_size": self.inner_square_size,
+            "outer_square_size": self.outer_square_size, "A": self.A, "outer_state": self.outer_state
         }
         try:
             with open(self.config_file, 'w') as f:
@@ -284,27 +243,31 @@ class SLMDriver(QWidget):
         except Exception as e:
             print(f"Failed to save config: {e}")
 
+    def save_current_pattern(self):
+        """Saves the current pixmap to image.bmp."""
+        pixmap = self.label.pixmap()
+        if pixmap:
+            success = pixmap.save("image.bmp", "BMP")
+            if success:
+                print(">>> Pattern successfully saved to ./image.bmp")
+            else:
+                print(">>> Error: Failed to save image.")
+
     def update_pattern(self):
-        """Calls the JIT-compiled JAX function and updates the display."""
         safe_period = max(2.0, self.grating_period)
-        
         if self.uniform_mode:
             x = jnp.arange(self.width) - self.width // 2
             y = jnp.arange(self.height) - self.height // 2
             X, Y = jnp.meshgrid(x, y)
-            
             theta = jnp.radians(self.angle)
             cos_theta = jnp.round(np.cos(theta), 5)
             sin_theta = jnp.round(np.sin(theta), 5)
-            
             phase = (X * cos_theta + Y * sin_theta) / safe_period
             fractional_phase = jnp.mod(phase, 1.0)
-            
             depth = self.grating_phase_max - self.grating_phase_min
             grating_float = fractional_phase * depth
             grating_wrapped = self.grating_phase_min + jnp.mod(grating_float, depth)
             pattern = jnp.floor(grating_wrapped).astype(np.uint8)
-            
             if self.checkerboard_mode:
                 X_abs, Y_abs = jnp.meshgrid(np.arange(self.width), jnp.arange(self.height))
                 check_size = max(1, self.checkerboard_size)
@@ -312,174 +275,86 @@ class SLMDriver(QWidget):
                 check_y = (Y_abs // check_size) % 2
                 checkerboard_mask = check_x ^ check_y
                 pattern = jnp.where(checkerboard_mask, pattern, 0).astype(np.uint8)
-            
             self.display_pattern(pattern)
             return
         
-        # Determine the outer multiplier based on the current state
-        if self.outer_state == 1:
-            current_outer_multiplier = 0.0
-        elif self.outer_state == 2:
-            current_outer_multiplier = self.A
-        else:
-            current_outer_multiplier = -self.A
+        current_outer_multiplier = 0.0
+        if self.outer_state == 2: current_outer_multiplier = self.A
+        elif self.outer_state == 3: current_outer_multiplier = -self.A
             
-        # Call the JAX JIT-compiled function
         jax_pattern = compute_pattern(
-            width=self.width,
-            height=self.height,
-            angle=self.angle,
-            aperture_x=self.aperture_x,
-            aperture_y=self.aperture_y,
-            aperture_radius=self.aperture_radius,
-            grating_period=safe_period,
-            grating_phase_min=self.grating_phase_min,
-            grating_phase_max=self.grating_phase_max,
-            array_pitch=self.array_pitch,
-            checkerboard_mode=self.checkerboard_mode,
-            checkerboard_size=self.checkerboard_size,
-            zoom_level=self.zoom_level,
-            inner_square_size=self.inner_square_size,
-            outer_square_size=self.outer_square_size,
-            multipliers=self.multipliers,
-            outer_multiplier=current_outer_multiplier
+            width=self.width, height=self.height, angle=self.angle,
+            aperture_x=self.aperture_x, aperture_y=self.aperture_y, aperture_radius=self.aperture_radius,
+            grating_period=safe_period, grating_phase_min=self.grating_phase_min, grating_phase_max=self.grating_phase_max,
+            array_pitch=self.array_pitch, checkerboard_mode=self.checkerboard_mode, checkerboard_size=self.checkerboard_size,
+            zoom_level=self.zoom_level, inner_square_size=self.inner_square_size, outer_square_size=self.outer_square_size,
+            multipliers=self.multipliers, outer_multiplier=current_outer_multiplier
         )
-        
-        # Convert JAX DeviceArray back to a standard NumPy array for PyQt5
-        pattern = np.array(jax_pattern)
-        
-        self.display_pattern(pattern)
+        self.display_pattern(np.array(jax_pattern))
 
     def display_pattern(self, pattern_array):
-        """Updates both the SLM window and the Preview window."""
         pattern_array = np.ascontiguousarray(pattern_array, dtype=np.uint8)
         h, w = pattern_array.shape
-        bytes_per_line = w
-        
-        # Create QImage and QPixmap
-        qImg = QImage(pattern_array.data, w, h, bytes_per_line, QImage.Format_Grayscale8)
+        qImg = QImage(pattern_array.data, w, h, w, QImage.Format_Grayscale8)
         pixmap = QPixmap.fromImage(qImg)
-        
-        # Update SLM Window
         self.label.setPixmap(pixmap)
-        
-        # Update Preview Window
         if hasattr(self, 'preview_window') and self.preview_window.isVisible():
             self.preview_window.label.setPixmap(pixmap)
 
     def keyPressEvent(self, event):
-        """Handles key presses for tuning the SLM pattern."""
-        step_pos = 2       
-        step_angle = 5.0    
-        step_period = 1.0   
-        step_phase = 5.0    
-        step_zoom = 0.01
-        step_radius = 1.0
-        step_square = 5.0
-        step_A = 0.05
-
+        step_pos, step_angle, step_period, step_phase = 2, 5.0, 1.0, 5.0
+        step_zoom, step_radius, step_square, step_A = 0.01, 1.0, 5.0, 0.05
         key = event.key()
 
         if key == Qt.Key_Escape:
             self.close()
             return
-        elif key == Qt.Key_C:
-            self.checkerboard_mode = not self.checkerboard_mode
-        elif key == Qt.Key_U:
-            self.uniform_mode = not self.uniform_mode
-            
-        # Multiplier Controls
-        elif key == Qt.Key_1:
-            self.outer_state = 1
-        elif key == Qt.Key_2:
-            self.outer_state = 2
-        elif key == Qt.Key_3:
-            self.outer_state = 3
-        elif key == Qt.Key_Q:
-            self.A = min(1.0, self.A + step_A)
-        elif key == Qt.Key_A:
-            self.A = max(0.0, self.A - step_A)            
-        # Geometry Controls
-        elif key == Qt.Key_Comma:
-            self.angle = (self.angle - step_angle) % 360
-        elif key == Qt.Key_Period:
-            self.angle = (self.angle + step_angle) % 360
-        elif key == Qt.Key_Left:
-            self.aperture_x -= step_pos
-        elif key == Qt.Key_Right:
-            self.aperture_x += step_pos
-        elif key == Qt.Key_Up:
-            self.aperture_y -= step_pos
-        elif key == Qt.Key_Down:
-            self.aperture_y += step_pos
-            
-        # Zoom Controls
-        elif key == Qt.Key_PageUp:
-            self.zoom_level += step_zoom
-        elif key == Qt.Key_PageDown:
-            self.zoom_level = max(0.1, self.zoom_level - step_zoom)
-            
-        # Lens Size Controls
-        elif key == Qt.Key_W:
-            self.aperture_radius += step_radius
-        elif key == Qt.Key_S:
-            self.aperture_radius = max(0.0, self.aperture_radius - step_radius)
-            
-        # Inner Square Controls
-        elif key == Qt.Key_E:
-            self.inner_square_size += step_square
-        elif key == Qt.Key_D:
-            self.inner_square_size = max(0.0, self.inner_square_size - step_square)
-            
-        # Outer Square Controls
-        elif key == Qt.Key_R:
-            self.outer_square_size += step_square
-        elif key == Qt.Key_F:
-            self.outer_square_size = max(0.0, self.outer_square_size - step_square)
-
-        # Checkerboard Size Controls
-        elif key == Qt.Key_O:
-            self.checkerboard_size += 1
-        elif key == Qt.Key_L:
-            self.checkerboard_size = max(1, self.checkerboard_size - 1)
-
-        # Grating Controls
-        elif key == Qt.Key_BracketLeft:
-            self.grating_period = max(2.0, self.grating_period - step_period)
-        elif key == Qt.Key_BracketRight:
-            self.grating_period += step_period
-        elif key == Qt.Key_9:
-            self.grating_phase_min = max(0.0, self.grating_phase_min - step_phase)
-        elif key == Qt.Key_0:
-            self.grating_phase_min = min(self.grating_phase_max - 1.0, self.grating_phase_min + step_phase)
-        elif key == Qt.Key_Minus:
-            self.grating_phase_max = max(self.grating_phase_min + 1.0, self.grating_phase_max - step_phase)
-        elif key == Qt.Key_Equal: 
-            self.grating_phase_max = min(255.0, self.grating_phase_max + step_phase)
-        else:
-            return 
+        # --- NEW SAVE LOGIC ---
+        elif key == Qt.Key_Return or key == Qt.Key_Enter:
+            self.save_current_pattern()
+            return
+        # ----------------------
+        elif key == Qt.Key_C: self.checkerboard_mode = not self.checkerboard_mode
+        elif key == Qt.Key_U: self.uniform_mode = not self.uniform_mode
+        elif key == Qt.Key_1: self.outer_state = 1
+        elif key == Qt.Key_2: self.outer_state = 2
+        elif key == Qt.Key_3: self.outer_state = 3
+        elif key == Qt.Key_Q: self.A = min(1.0, self.A + step_A)
+        elif key == Qt.Key_A: self.A = max(0.0, self.A - step_A)            
+        elif key == Qt.Key_Comma: self.angle = (self.angle - step_angle) % 360
+        elif key == Qt.Key_Period: self.angle = (self.angle + step_angle) % 360
+        elif key == Qt.Key_Left: self.aperture_x -= step_pos
+        elif key == Qt.Key_Right: self.aperture_x += step_pos
+        elif key == Qt.Key_Up: self.aperture_y -= step_pos
+        elif key == Qt.Key_Down: self.aperture_y += step_pos
+        elif key == Qt.Key_PageUp: self.zoom_level += step_zoom
+        elif key == Qt.Key_PageDown: self.zoom_level = max(0.1, self.zoom_level - step_zoom)
+        elif key == Qt.Key_W: self.aperture_radius += step_radius
+        elif key == Qt.Key_S: self.aperture_radius = max(0.0, self.aperture_radius - step_radius)
+        elif key == Qt.Key_E: self.inner_square_size += step_square
+        elif key == Qt.Key_D: self.inner_square_size = max(0.0, self.inner_square_size - step_square)
+        elif key == Qt.Key_R: self.outer_square_size += step_square
+        elif key == Qt.Key_F: self.outer_square_size = max(0.0, self.outer_square_size - step_square)
+        elif key == Qt.Key_O: self.checkerboard_size += 1
+        elif key == Qt.Key_L: self.checkerboard_size = max(1, self.checkerboard_size - 1)
+        elif key == Qt.Key_BracketLeft: self.grating_period = max(2.0, self.grating_period - step_period)
+        elif key == Qt.Key_BracketRight: self.grating_period += step_period
+        elif key == Qt.Key_9: self.grating_phase_min = max(0.0, self.grating_phase_min - step_phase)
+        elif key == Qt.Key_0: self.grating_phase_min = min(self.grating_phase_max - 1.0, self.grating_phase_min + step_phase)
+        elif key == Qt.Key_Minus: self.grating_phase_max = max(self.grating_phase_min + 1.0, self.grating_phase_max - step_phase)
+        elif key == Qt.Key_Equal: self.grating_phase_max = min(255.0, self.grating_phase_max + step_phase)
+        else: return 
 
         self.save_config()
         self.update_pattern()
 
     def closeEvent(self, event):
-        if hasattr(self, 'preview_window'):
-            self.preview_window.close()
+        if hasattr(self, 'preview_window'): self.preview_window.close()
         event.accept()
-
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    
-    TARGET_SCREEN = 1 
-    SLM_WIDTH = 512
-    SLM_HEIGHT = 512
-    CONFIG_FILE = "slm.json"
-    IMAGE_FILE = "patterns/corner.csv"
-    
-    slm_window = SLMDriver(screen_index=TARGET_SCREEN, width=SLM_WIDTH, height=SLM_HEIGHT, config_file=CONFIG_FILE, image_file=IMAGE_FILE)
+    slm_window = SLMDriver(screen_index=1, width=512, height=512, config_file="slm.json", image_file="patterns/corner.csv")
     slm_window.show()
-    
     sys.exit(app.exec_())
