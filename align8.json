@@ -1,0 +1,9 @@
+{
+    "angle": 45.0,
+    "aperture_x": 240,
+    "aperture_y": 250,
+    "aperture_radius": 400,
+    "grating_period": 9.0,
+    "grating_depth": 255.0,
+    "checkerboard_size": 61
+}

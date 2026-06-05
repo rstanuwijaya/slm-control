@@ -1,0 +1,16 @@
+{
+    "angle": 30.0,
+    "aperture_x": 250,
+    "aperture_y": 244,
+    "aperture_radius": 18.0,
+    "grating_period": 6.0,
+    "grating_phase_min": 115.0,
+    "grating_phase_max": 255.0,
+    "array_pitch": 35.0,
+    "checkerboard_size": 35,
+    "zoom_level": 1.0700000000000003,
+    "inner_square_size": 145.0,
+    "outer_square_size": 185.0,
+    "A": 1.0,
+    "outer_state": 1
+}
