@@ -39,8 +39,10 @@ The goal for the SLM Calibration is to obtain an "LUT" (Lookup Table) file that 
     1.   **Sigmoid Fit ($0$ to $\pi$):** Liquid crystals often have a "dead zone" or a slow start, which a Sigmoid function models very well.
     2.  **Constrained Polynomial ($\pi$ to $2\pi$):** A quadratic/linear fit handles the higher gray levels.
 1. We then fit: $$I(g) \propto \cos^2\left(\frac{\text{PiecewisePhase}(g)}{2}\right)$$ with continuous phase condition at the piecewise boundary. 
-1. Notice the phase response varies across the different pixel sizes. We generally want to use the larger pixel size as the Fringing Fields effect is minimized. We extrapolate the phase response to the infinite period to obtain the LUT. 
+1. Notice the phase response varies across the different pixel sizes. We generally want to use the larger pixel size as the Fringing Fields effect is minimized. We extrapolate the phase response to the infinite period to obtain the LUT.
+![alt text](figures/phase.png)
 1. The notebook should ouput a LUT table and plots it. The higher voltage is largely linear, which is the regime we want to use. Set the voltage where the response starts to get linear as the `grating_depth_min`, and set the voltage where it modulates by $2\pi$ after extrapolation to `gratinng_depth_max` in the `slm.json` file. 
+![alt text](figures/lut.png)
 
 # Step 2: Metasurface Alignment
 In this step, we focus on the alignment to make sure the SLM and Metasurace plane overlaps, and we can observe the focal points on the camera. We need consistency between the simulation result and the alignment result before we can proceed into Step3.
@@ -59,6 +61,9 @@ In this step, we focus on the alignment to make sure the SLM and Metasurace plan
 1. The code `measure.py` will also read from `slm.json` config to use the aligned config and show different SLM patterns for the 8 DCT basis. 
 2. The code will also capture the image from the camera and store it in the `images/{current_time}` folder.
 3. After the experiment is done, use `visualize.ipynb` to show the captured images. (the file was corrupted when I copied it over, so I need to redo the visualization part. I need to wait until I can relog to my UStA account to access the data)
+![](./figures/expr-plusref.png)
+
+NOTE: the above result still have bug. Stefan will revise the `slm.py` with correct LUT later to fix the phase.
 
 # Step 3: Image Compression
 To Be Done
