@@ -4,4 +4,4 @@
 *.tiff
 *.bmp
 
-!/figures/
+!/figures/*
